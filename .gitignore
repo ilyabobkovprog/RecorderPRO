@@ -1,4 +1,5 @@
 miniaudio
+records
 
 # Игнорировать всё в папке build/linux/
 build/linux/*
