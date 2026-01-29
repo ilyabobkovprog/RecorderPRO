@@ -1,1 +1,6 @@
 miniaudio
+
+# Игнорировать всё в папке build/linux/
+build/linux/*
+# Но не игнорировать файл build/linux/recorder
+!build/linux/recorder
