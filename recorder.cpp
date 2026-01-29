@@ -11,6 +11,7 @@
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 #include <algorithm>
+#include <iostream>
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio/miniaudio.h"
@@ -24,13 +25,10 @@ struct AudioDeviceInfo
     std::string name;
 };
 
-void RecordLogic(int delay, std::string folderPath, ma_device_id *pSelectedId, bool mute, bool onlyAudio, int width, int height)
+void RecordLogic(std::string folderPath, ma_device_id *pSelectedId, bool mute, bool onlyAudio, int width, int height)
 {
-    // Создаем вложенную структуру папок records/дата/время
     if (!wxFileName::Mkdir(folderPath, 0777, wxPATH_MKDIR_FULL))
         return;
-    if (delay > 0)
-        std::this_thread::sleep_for(std::chrono::seconds(delay));
 
     ma_encoder encoder;
     ma_device device;
@@ -40,9 +38,11 @@ void RecordLogic(int delay, std::string folderPath, ma_device_id *pSelectedId, b
     std::string videoPath = folderPath + "/video_silent.mp4";
     std::string finalPath = folderPath + (onlyAudio ? "/audio_only.wav" : "/record.mp4");
 
-    if (!mute) {
+    if (!mute)
+    {
         ma_encoder_config encCfg = ma_encoder_config_init(ma_encoding_format_wav, ma_format_s16, 1, 16000);
-        if (ma_encoder_init_file(audioPath.c_str(), &encCfg, &encoder) == MA_SUCCESS) {
+        if (ma_encoder_init_file(audioPath.c_str(), &encCfg, &encoder) == MA_SUCCESS)
+        {
             ma_device_config devCfg = ma_device_config_init(ma_device_type_capture);
             devCfg.capture.pDeviceID = pSelectedId;
             devCfg.capture.format = encoder.config.format;
@@ -55,7 +55,8 @@ void RecordLogic(int delay, std::string folderPath, ma_device_id *pSelectedId, b
             };
             devCfg.pUserData = &encoder;
 
-            if (ma_device_init(NULL, &devCfg, &device) == MA_SUCCESS) {
+            if (ma_device_init(NULL, &devCfg, &device) == MA_SUCCESS)
+            {
                 ma_device_start(&device);
                 audioInitialized = true;
             }
@@ -63,7 +64,8 @@ void RecordLogic(int delay, std::string folderPath, ma_device_id *pSelectedId, b
     }
 
     FILE *pipe = nullptr;
-    if (!onlyAudio) {
+    if (!onlyAudio)
+    {
         std::string videoSize = std::to_string(width) + "x" + std::to_string(height);
         std::string cmd = "ffmpeg -y -loglevel quiet -f x11grab -video_size " + videoSize + " -i :0.0 -c:v libx264 -preset ultrafast " + videoPath;
         pipe = popen(cmd.c_str(), "w");
@@ -74,7 +76,8 @@ void RecordLogic(int delay, std::string folderPath, ma_device_id *pSelectedId, b
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    if (audioInitialized) {
+    if (audioInitialized)
+    {
         ma_device_uninit(&device);
         ma_encoder_uninit(&encoder);
     }
@@ -85,15 +88,21 @@ void RecordLogic(int delay, std::string folderPath, ma_device_id *pSelectedId, b
         pclose(pipe);
     }
 
-    if (onlyAudio) {
+    if (onlyAudio)
+    {
         if (audioInitialized) rename(audioPath.c_str(), finalPath.c_str());
-    } else {
-        if (audioInitialized) {
+    }
+    else
+    {
+        if (audioInitialized && !mute)
+        {
             std::string mergeCmd = "ffmpeg -y -loglevel quiet -i " + videoPath + " -i " + audioPath + " -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 " + finalPath;
             system(mergeCmd.c_str());
             remove(videoPath.c_str());
             remove(audioPath.c_str());
-        } else {
+        }
+        else
+        {
             rename(videoPath.c_str(), finalPath.c_str());
         }
     }
@@ -102,17 +111,25 @@ void RecordLogic(int delay, std::string folderPath, ma_device_id *pSelectedId, b
 class RecorderFrame : public wxFrame
 {
 public:
-    RecorderFrame() : wxFrame(NULL, wxID_ANY, "RECORDER PRO", wxDefaultPosition, wxSize(430, 315))
+    RecorderFrame() : wxFrame(NULL, wxID_ANY, "BOBREC PRO", wxDefaultPosition, wxSize(450, 420))
     {
         SetBackgroundColour(wxColour(240, 240, 240));
         m_panel = new wxPanel(this);
         wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
 
         wxStaticBoxSizer *settingsBox = new wxStaticBoxSizer(wxVERTICAL, m_panel, wxString::FromUTF8("Настройки захвата"));
+        
+        wxArrayString modes;
+        modes.Add(wxString::FromUTF8("Видео + Звук"));
+        modes.Add(wxString::FromUTF8("Только Видео"));
+        modes.Add(wxString::FromUTF8("Только Звук"));
+        m_modeRadio = new wxRadioBox(m_panel, wxID_ANY, wxString::FromUTF8("Режим записи"), wxDefaultPosition, wxDefaultSize, modes, 1, wxRA_SPECIFY_COLS);
+
         m_deviceChoice = new wxChoice(m_panel, wxID_ANY);
         m_spinDelay = new wxSpinCtrl(m_panel, wxID_ANY, "0");
 
-        settingsBox->Add(new wxStaticText(m_panel, wxID_ANY, wxString::FromUTF8("Режим / Аудио-устройство:")), 0, wxALL, 5);
+        settingsBox->Add(m_modeRadio, 0, wxEXPAND | wxALL, 5);
+        settingsBox->Add(new wxStaticText(m_panel, wxID_ANY, wxString::FromUTF8("Аудио-устройство:")), 0, wxALL, 5);
         settingsBox->Add(m_deviceChoice, 0, wxEXPAND | wxALL, 5);
         settingsBox->Add(new wxStaticText(m_panel, wxID_ANY, wxString::FromUTF8("Задержка на старте (сек):")), 0, wxALL, 5);
         settingsBox->Add(m_spinDelay, 0, wxEXPAND | wxALL, 5);
@@ -129,12 +146,11 @@ public:
         btnSizer->Add(m_btnPause, 1, wxALL | wxEXPAND, 5);
         btnSizer->Add(m_btnStop, 1, wxALL | wxEXPAND, 5);
 
-        wxStaticText *hotkeyHint = new wxStaticText(m_panel, wxID_ANY, wxString::FromUTF8("Горячие клавиши: F10 - Старт/Стоп | F11 - Пауза"));
-        hotkeyHint->SetFont(wxFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
+        wxStaticText *hotkeyHint = new wxStaticText(m_panel, wxID_ANY, wxString::FromUTF8("F10: Старт/Стоп | F11: Пауза"));
         hotkeyHint->SetForegroundColour(wxColour(100, 100, 100));
 
         m_combinedStatusSizer = new wxBoxSizer(wxHORIZONTAL);
-        m_statusTxt = new wxStaticText(m_panel, wxID_ANY, wxString::FromUTF8("Готов к работе"));
+        m_statusTxt = new wxStaticText(m_panel, wxID_ANY, wxString::FromUTF8("Готов"));
         m_statusTxt->SetFont(wxFont(10, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
         m_linkOpenFolder = new wxHyperlinkCtrl(m_panel, wxID_ANY, wxString::FromUTF8("(открыть папку)"), "");
         m_linkOpenFolder->Hide();
@@ -144,9 +160,8 @@ public:
 
         mainSizer->Add(settingsBox, 0, wxEXPAND | wxALL, 15);
         mainSizer->Add(btnSizer, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
-        mainSizer->Add(hotkeyHint, 0, wxALIGN_CENTER | wxTOP | wxBOTTOM, 5);
-        mainSizer->AddSpacer(5);
-        mainSizer->Add(m_combinedStatusSizer, 0, wxALIGN_CENTER | wxTOP | wxBOTTOM, 10);
+        mainSizer->Add(hotkeyHint, 0, wxALIGN_CENTER | wxTOP, 5);
+        mainSizer->Add(m_combinedStatusSizer, 0, wxALIGN_CENTER | wxTOP | wxBOTTOM, 15);
 
         m_btnPause->Enable(false);
         m_btnStop->Enable(false);
@@ -155,10 +170,16 @@ public:
         m_btnStart->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { StartAction(); });
         m_btnPause->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { PauseAction(); });
         m_btnStop->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { StopAction(); });
-        m_linkOpenFolder->Bind(wxEVT_HYPERLINK, &RecorderFrame::OnOpenFolder, this);
+        m_modeRadio->Bind(wxEVT_RADIOBOX, [this](wxCommandEvent &) { 
+            m_deviceChoice->Enable(m_modeRadio->GetSelection() != 1); 
+        });
+
+        m_countdownTimer = new wxTimer(this);
+        Bind(wxEVT_TIMER, &RecorderFrame::OnTimerTick, this, m_countdownTimer->GetId());
 
         RefreshDevices();
         StartGlobalHotkeyThread();
+        Centre();
     }
 
 private:
@@ -166,143 +187,137 @@ private:
     wxButton *m_btnStart, *m_btnPause, *m_btnStop;
     wxSpinCtrl *m_spinDelay;
     wxChoice *m_deviceChoice;
+    wxRadioBox *m_modeRadio;
     wxStaticText *m_statusTxt;
     wxHyperlinkCtrl *m_linkOpenFolder;
     wxBoxSizer *m_combinedStatusSizer;
     wxString m_currentFolderPath;
     std::vector<AudioDeviceInfo> m_devices;
+    wxTimer *m_countdownTimer;
+    int m_remainingSeconds;
 
     void RefreshDevices()
     {
         m_devices.clear();
         m_deviceChoice->Clear();
-        int firstMicIndex = -1;
         ma_context context;
         if (ma_context_init(NULL, 0, NULL, &context) == MA_SUCCESS) {
-            ma_device_info* pCaptureInfos; ma_uint32 captureCount;
+            ma_device_info *pCaptureInfos; ma_uint32 captureCount;
             if (ma_context_get_devices(&context, NULL, NULL, &pCaptureInfos, &captureCount) == MA_SUCCESS) {
                 for (ma_uint32 i = 0; i < captureCount; ++i) {
-                    AudioDeviceInfo info = { pCaptureInfos[i].id, pCaptureInfos[i].name };
+                    AudioDeviceInfo info = {pCaptureInfos[i].id, pCaptureInfos[i].name};
                     m_devices.push_back(info);
-                    std::string lowerName = info.name;
-                    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-                    bool isMonitor = (lowerName.find("monitor") != std::string::npos);
-                    wxString prefix = isMonitor ? wxString::FromUTF8("[СИСТЕМА] ") : wxString::FromUTF8("[МИКРОФОН] ");
-                    int currentIdx = m_deviceChoice->Append(prefix + wxString::FromUTF8(info.name.c_str()));
-                    if (!isMonitor && firstMicIndex == -1) firstMicIndex = currentIdx;
+                    
+                    wxString nameLower = wxString::FromUTF8(info.name.c_str()).Lower();
+                    wxString prefix;
+
+                    // Более надежная проверка на системный звук (Monitor или Output)
+                    if (nameLower.Contains("monitor") || nameLower.Contains("output")) {
+                        prefix = wxString::FromUTF8("[СИСТЕМА] ");
+                    } else {
+                        prefix = wxString::FromUTF8("[МИКРОФОН] ");
+                    }
+                    
+                    m_deviceChoice->Append(prefix + wxString::FromUTF8(info.name.c_str()));
                 }
             }
             ma_context_uninit(&context);
         }
-        m_deviceChoice->Append(wxString::FromUTF8("Без звука (только видео)"));
-        m_deviceChoice->Append(wxString::FromUTF8("Только аудио (без видео)"));
-        if (firstMicIndex != -1) m_deviceChoice->SetSelection(firstMicIndex);
-        else if (m_deviceChoice->GetCount() > 0) m_deviceChoice->SetSelection(0);
+        if (m_deviceChoice->GetCount() > 0) m_deviceChoice->SetSelection(0);
     }
 
-    void StartAction()
-    {
-        if (g_IsRecording) return;
-        int sel = m_deviceChoice->GetSelection();
-        int count = m_deviceChoice->GetCount();
-        bool onlyAudio = (sel == count - 1);
-        bool mute = (sel == count - 2);
-        ma_device_id *pId = nullptr;
-        if (!mute && !onlyAudio && sel < (int)m_devices.size()) pId = &m_devices[sel].id;
+    void OnTimerTick(wxTimerEvent&) {
+        if (m_remainingSeconds > 0) {
+            m_statusTxt->SetLabel(wxString::Format(wxString::FromUTF8("Старт через: %d..."), m_remainingSeconds--));
+        } else {
+            m_countdownTimer->Stop();
+            wxBell();
+            ExecuteStart();
+        }
+    }
 
-        wxSize screenSize = wxDisplay(wxDisplay::GetFromWindow(this)).GetGeometry().GetSize();
-        
-        // Формируем путь: records/YYYY-MM-DD/HH-MM-SS
-        wxDateTime now = wxDateTime::Now();
-        m_currentFolderPath = wxString::Format("records/%s/%s", 
-                              now.FormatISODate(), 
-                              now.Format("%H-%M-%S"));
-
-        g_IsRecording = true;
-        g_IsPaused = false;
-        m_statusTxt->SetLabel(wxString::FromUTF8("Идет запись..."));
-        m_statusTxt->SetForegroundColour(*wxRED);
+    void StartAction() {
+        if (g_IsRecording || m_countdownTimer->IsRunning()) return;
+        m_remainingSeconds = m_spinDelay->GetValue();
         m_linkOpenFolder->Hide();
-        m_btnStart->Enable(false);
-        m_btnPause->Enable(true);
-        m_btnStop->Enable(true);
-        m_panel->Layout();
-
-        std::thread(RecordLogic, m_spinDelay->GetValue(), m_currentFolderPath.ToStdString(), pId, mute, onlyAudio, screenSize.x, screenSize.y).detach();
+        if (m_remainingSeconds > 0) {
+            m_btnStart->Enable(false); m_btnStop->Enable(true);
+            m_statusTxt->SetLabel(wxString::Format(wxString::FromUTF8("Старт через: %d..."), m_remainingSeconds--));
+            m_countdownTimer->Start(1000);
+        } else {
+            ExecuteStart();
+        }
     }
 
-    void StopAction()
-    {
+    void ExecuteStart() {
+        g_IsRecording = true; g_IsPaused = false;
+        m_btnStart->Enable(false); m_btnPause->Enable(true); m_btnStop->Enable(true);
+        m_statusTxt->SetLabel(wxString::FromUTF8("• ЗАПИСЬ..."));
+        m_statusTxt->SetForegroundColour(wxColour(200, 0, 0));
+
+        wxDateTime now = wxDateTime::Now();
+        m_currentFolderPath = "records/" + now.FormatISODate() + "/" + now.Format("%H-%M-%S");
+
+        int mode = m_modeRadio->GetSelection();
+        bool onlyAudio = (mode == 2);
+        bool mute = (mode == 1);
+        
+        int devIdx = m_deviceChoice->GetSelection();
+        ma_device_id* pId = (devIdx != wxNOT_FOUND) ? &m_devices[devIdx].id : nullptr;
+
+        std::thread(RecordLogic, m_currentFolderPath.ToStdString(), pId, mute, onlyAudio, 
+                    wxGetDisplaySize().x, wxGetDisplaySize().y).detach();
+        m_panel->Layout();
+    }
+
+    void PauseAction() {
         if (!g_IsRecording) return;
-        g_IsRecording = false;
-        m_statusTxt->SetLabel(wxString::FromUTF8("Запись сохранена!"));
-        m_statusTxt->SetForegroundColour(wxColour(0, 150, 0));
-        m_linkOpenFolder->SetURL(m_currentFolderPath);
-        m_linkOpenFolder->Show();
-        m_btnStart->Enable(true);
-        m_btnPause->Enable(false);
-        m_btnStop->Enable(false);
+        g_IsPaused = !g_IsPaused;
+        m_btnPause->SetLabel(g_IsPaused ? wxString::FromUTF8("▶ ПРОДОЛЖИТЬ") : wxString::FromUTF8("⏸ ПАУЗА"));
+    }
+
+    void StopAction() {
+        if (m_countdownTimer->IsRunning()) {
+            m_countdownTimer->Stop();
+            m_statusTxt->SetLabel(wxString::FromUTF8("Отменено"));
+            m_statusTxt->SetForegroundColour(wxColour(0, 0, 0));
+        } else if (g_IsRecording) {
+            g_IsRecording = false;
+            m_statusTxt->SetLabel(wxString::FromUTF8("Сохранено"));
+            m_statusTxt->SetForegroundColour(wxColour(0, 150, 0));
+            m_linkOpenFolder->SetURL("file://" + wxFileName(m_currentFolderPath).GetAbsolutePath());
+            m_linkOpenFolder->Show();
+        }
+        m_btnStart->Enable(true); m_btnPause->Enable(false); m_btnStop->Enable(false);
         m_btnPause->SetLabel(wxString::FromUTF8("⏸ ПАУЗА"));
         m_panel->Layout();
     }
 
-    void PauseAction()
-    {
-        if (!g_IsRecording) return;
-        g_IsPaused = !g_IsPaused;
-        if (g_IsPaused) {
-            m_statusTxt->SetLabel(wxString::FromUTF8("⏸ Пауза"));
-            m_statusTxt->SetForegroundColour(wxColour(255, 140, 0));
-            m_btnPause->SetLabel(wxString::FromUTF8("▶ Продолжить"));
-        } else {
-            m_statusTxt->SetLabel(wxString::FromUTF8("Идет запись..."));
-            m_statusTxt->SetForegroundColour(*wxRED);
-            m_btnPause->SetLabel(wxString::FromUTF8("⏸ ПАУЗА"));
-        }
+    void OnOpenFolder(wxHyperlinkEvent&) {
+        wxLaunchDefaultApplication(wxFileName(m_currentFolderPath).GetAbsolutePath());
     }
 
-    void StartGlobalHotkeyThread()
-    {
-        std::thread([](RecorderFrame* frame) {
-            Display* display = XOpenDisplay(NULL);
-            if (!display) return;
-            Window root = DefaultRootWindow(display);
-            XGrabKey(display, XKeysymToKeycode(display, XK_F10), AnyModifier, root, True, GrabModeAsync, GrabModeAsync);
-            XGrabKey(display, XKeysymToKeycode(display, XK_F11), AnyModifier, root, True, GrabModeAsync, GrabModeAsync);
-            XSelectInput(display, root, KeyPressMask);
-            XEvent event;
+    void StartGlobalHotkeyThread() {
+        std::thread([this]() {
+            Display* dpy = XOpenDisplay(NULL);
+            if (!dpy) return;
+            int kF10 = XKeysymToKeycode(dpy, XK_F10), kF11 = XKeysymToKeycode(dpy, XK_F11);
+            XGrabKey(dpy, kF10, AnyModifier, DefaultRootWindow(dpy), True, GrabModeAsync, GrabModeAsync);
+            XGrabKey(dpy, kF11, AnyModifier, DefaultRootWindow(dpy), True, GrabModeAsync, GrabModeAsync);
+            XEvent ev;
             while (true) {
-                XNextEvent(display, &event);
-                if (event.type == KeyPress) {
-                    if (event.xkey.keycode == XKeysymToKeycode(display, XK_F10)) {
-                        frame->GetEventHandler()->CallAfter([frame]() {
-                            if (!g_IsRecording) frame->StartAction(); else frame->StopAction();
-                        });
-                    }
-                    else if (event.xkey.keycode == XKeysymToKeycode(display, XK_F11)) {
-                        frame->GetEventHandler()->CallAfter([frame]() { frame->PauseAction(); });
-                    }
+                XNextEvent(dpy, &ev);
+                if (ev.type == KeyPress) {
+                    if (ev.xkey.keycode == kF10) { if(!g_IsRecording && !m_countdownTimer->IsRunning()) StartAction(); else StopAction(); }
+                    else if (ev.xkey.keycode == kF11) PauseAction();
                 }
             }
-            XCloseDisplay(display);
-        }, this).detach();
-    }
-
-    void OnOpenFolder(wxHyperlinkEvent &event)
-    {
-        wxLaunchDefaultApplication(m_currentFolderPath);
+        }).detach();
     }
 };
 
-class RecorderApp : public wxApp
-{
+class RecorderApp : public wxApp {
 public:
-    virtual bool OnInit()
-    {
-        RecorderFrame *frame = new RecorderFrame();
-        frame->Show(true);
-        return true;
-    }
+    virtual bool OnInit() { (new RecorderFrame())->Show(); return true; }
 };
-
 wxIMPLEMENT_APP(RecorderApp);
