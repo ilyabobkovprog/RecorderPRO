@@ -1,0 +1,3 @@
+#!/bin/bash
+g++ recorder.cpp `wx-config --cxxflags --libs` -finput-charset=UTF-8 -lpthread -ldl -lm -lX11 -o build/linux/recorder
+echo 'Build completed'
